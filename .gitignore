@@ -1,0 +1,5 @@
+tgtg_credentials.json
+tgtg_history.geojson
+tgtg_history.gpx
+__pycache__/
+*.pyc

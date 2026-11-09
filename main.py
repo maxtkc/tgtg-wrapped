@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import os
 import sys
 from datetime import datetime
@@ -156,6 +157,7 @@ def extract_points(orders):
                 "item_id": order.get("item_id"),
                 "order_id": order.get("order_id"),
                 "store_name": order.get("store_name"),
+                "logo": (order.get("store_logo") or {}).get("current_url"),
                 "order": order,
             }
         )
@@ -176,6 +178,8 @@ def export_geojson(points, output_file, metadata=False):
             "item_id": p["item_id"],
             "time": p["time"].isoformat(),
         }
+        if p["logo"]:
+            props["logo"] = p["logo"]
         if metadata:
             props.update(p["order"])
 
@@ -213,6 +217,9 @@ def main():
     parser.add_argument("--output", default=None, help="Output file name")
     parser.add_argument("--metadata", action="store_true", help="Include full bag metadata (price, address, etc.) in output")
     args = parser.parse_args()
+
+    # Show the PIN prompt URL logged by tgtg_client
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     output_file = args.output or "tgtg_history.geojson"
 

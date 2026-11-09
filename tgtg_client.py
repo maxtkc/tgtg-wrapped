@@ -73,7 +73,9 @@ DEFAULT_ACCESS_TOKEN_LIFETIME = 3600 * 4  # 4 hours
 DEFAULT_MAX_POLLING_TRIES = 24  # 24 * POLLING_WAIT_TIME = 2 minutes
 DEFAULT_POLLING_WAIT_TIME = 5  # Seconds
 DEFAULT_MIN_TIME_BETWEEN_REQUESTS = 15  # Seconds
-DEFAULT_APK_VERSION = "24.11.0"
+# DataDome 403s newer versions (26.10.0); 26.2.10 passes.
+DEFAULT_APK_VERSION = "26.2.10"
+MAX_CAPTCHA_ERRORS = 3
 
 APK_RE_SCRIPT = re.compile(r"AF_initDataCallback\({key:\s*'ds:5'.*?data:([\s\S]*?), sideChannel:.+<\/script")
 
@@ -276,7 +278,7 @@ class TgtgClient:
         access_token=None,
         refresh_token=None,
         datadome_cookie=None,
-        apk_version=None,
+        apk_version=DEFAULT_APK_VERSION,
         user_agent=None,
         language="en-GB",
         proxies=None,
@@ -360,32 +362,17 @@ class TgtgClient:
         if response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED):
             self.captcha_error_count = 0
             return response
-        # Status Code == 403
-        # --> Blocked due to rate limit / wrong user_agent.
-        # 1. Try: Get latest APK Version from google
-        # 2. Try: Reset session
-        # 3. Try: Delete datadome cookie and reset session
-        # 10.Try: Sleep 10 minutes, and reset session
+        # Status Code == 403 --> blocked by DataDome.
+        # Retry a few times with a fresh cookie and session, then give up:
+        # repeated 403s get the IP blocked.
         if response.status_code == 403:
             log.debug("Captcha Error 403!")
             self.captcha_error_count += 1
-            # If we had a DataDome cookie, invalidate it so the next retry fetches a new one
-            if self.session:
-                self.session.invalidate_datadome_cache()
-                time.sleep(0.5)
-            if self.captcha_error_count == 1:
-                self.user_agent = self._get_user_agent()
-            elif self.captcha_error_count == 2:
-                self.session = self._create_session()
-            elif self.captcha_error_count == 4:
-                self.datadome_cookie = None
-                self.session = self._create_session()
-            elif self.captcha_error_count >= 10:
-                log.warning("Too many captcha Errors! Sleeping for 10 minutes...")
-                time.sleep(10 * 60)
-                log.info("Retrying ...")
-                self.captcha_error_count = 0
-                self.session = self._create_session()
+            if self.captcha_error_count >= MAX_CAPTCHA_ERRORS:
+                raise TgtgCaptchaError(response.status_code, response.content)
+            self.session.invalidate_datadome_cache()
+            self.datadome_cookie = None
+            self.session = self._create_session()
             time.sleep(3)
             return self._post(path, **kwargs)
         raise TgtgAPIError(response.status_code, response.content)
